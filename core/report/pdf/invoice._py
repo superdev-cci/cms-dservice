@@ -1,0 +1,373 @@
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.units import cm, inch, mm
+from reportlab.platypus import Image, BaseDocTemplate, Frame, PageTemplate, PageBreak
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.graphics.barcode import code128
+
+from cci.report.pdf.flowable.item import ProductDescription
+from cci.report.pdf.flowable.promotion_item import PromotionDescription
+from cci.serializers.fields.goods import GoodsJSONField
+
+
+class InvoicePdf(BaseDocTemplate):
+    logo_path = './templates/report/cci.jpg'
+    page_size = A4
+    unit = cm
+
+    def __init__(self, file_name, data=None, *args, **kwargs):
+        self.file_name = '{}.pdf'.format(file_name)
+        super(InvoicePdf, self).__init__(self.file_name, pagesize=self.page_size, **kwargs)
+        self.font = kwargs.get('font', "Helvetica")
+        # self.canvas = canvas.Canvas(self.file_name, pagesize=self.page_size)
+        self.image = Image(self.logo_path)
+        pdfmetrics.registerFont(TTFont('THSarabunNew', './templates/THSarabunNew.ttf'))
+        pdfmetrics.registerFont(TTFont('THSarabunNew Bold', './templates/THSarabunNew Bold.ttf'))
+        pdfmetrics.registerFont(TTFont('THSarabunNew Italic', './templates/THSarabunNew Italic.ttf'))
+        self.invoice = data
+        self.customer = self.invoice.member
+        self.bill_address = self.invoice.member.bill_address
+        self.branch = self.invoice.branch
+        self.total_page = 0
+        return
+
+    def render_template(self, *args):
+        # Header section
+        self.canv.saveState()
+        self.render_header()
+        self.render_customer()
+        self.render_bill_header()
+        self.canv.restoreState()
+
+        # Body
+        self.canv.saveState()
+        self.render_table(self.height - (12 * cm))
+        self.canv.restoreState()
+
+        # Footer section
+        self.canv.saveState()
+        self.render_footer()
+        # self.render_total()
+        self.canv.restoreState()
+        self.canv.setFont('THSarabunNew Bold', 12)
+        self.canv.drawString(inch * 6.8, 0.75 * inch, "หน้า {}/{}".format(self.page, self.total_page))
+        return
+
+    def render_last_page(self, *args):
+        # Header section
+        self.canv.saveState()
+        self.render_header()
+        self.render_customer()
+        self.render_bill_header()
+        self.canv.restoreState()
+
+        # Body
+        self.canv.saveState()
+        self.render_table(self.height - (12 * cm), True)
+        self.canv.restoreState()
+
+        # Footer section
+        self.canv.saveState()
+        self.render_footer()
+        self.render_total()
+        self.canv.restoreState()
+        self.canv.setFont('THSarabunNew Bold', 12)
+        self.canv.drawString(inch * 6.8, 0.75 * inch, "หน้า {}/{}".format(self.page, self.total_page))
+        return
+
+    def render_header(self, *args):
+        self.canv.setFont('THSarabunNew Bold', 18)
+        self.canv.translate(inch, 26 * cm)
+        self.canv.drawImage(InvoicePdf.logo_path, 0, 0, width=91, height=70)
+        self.canv.drawString(100, 2.2 * cm, 'บริษัทแชมป์ ออฟ แชมห์ อินโนเวชั่น จำกัด (สำนักงาน ใหญ่)')
+
+        text = self.canv.beginText()
+        text.setTextOrigin(100, 1.5 * cm)
+        text.setFont('THSarabunNew Bold', 14)
+        text.textLines('เลขที่ 9 อาคารพุทธวิชชาลัย โซนบี และ โซนซี')
+        text.textLines('ถนนแจ้งวัฒนะ แขวงอนุสาวรีย์ เขตบางเขน กรุงเทพฯ 10220')
+        text.textLines('เลขประจำตัวผู้เสียภาษี 0-1055-59080-08-9')
+
+        self.canv.drawText(text)
+
+        return
+
+    def render_customer(self, *args):
+        start_y = 3.3 * cm
+        self.canv.translate(0, (-4 * cm))
+        self.canv.roundRect(0, 0, (10 * cm), (3.8 * cm), 5)
+
+        text = self.canv.beginText()
+        text.setTextOrigin(3.8 * cm, start_y)
+        text.setFont('THSarabunNew Bold', 14)
+        text.textLines('{}'.format(self.customer.code))
+        text.textLines('{}'.format(self.customer.full_name))
+        text.textLines('{}'.format(self.customer.person.id_card))
+
+        if self.customer.person.mobile != '0':
+            text.textLines('{}'.format(self.customer.person.mobile))
+        else:
+            text.textLines('-')
+        if self.bill_address is not None:
+            text.textLines(self.bill_address.full_address_upper)
+            text.textLines(self.bill_address.full_address_last)
+
+        self.canv.drawText(text)
+
+        text = self.canv.beginText()
+        text.setTextOrigin(10, start_y)
+        text.setFont('THSarabunNew Bold', 14)
+        text.textLines('รหัสสมาชิก')
+        text.textLines('ชื่อ-สกุล')
+        text.textLines('เลขประจำตัวผู้เสียภาษี')
+        text.textLines('เบอร์โทรศัพท์')
+        text.textLines('ที่อยู่')
+
+        self.canv.drawText(text)
+        return
+
+    def render_bill_header(self):
+        start_y = 2 * cm
+        self.canv.translate((10.3 * cm), 0)
+        self.canv.roundRect(0, 0, (5.6 * cm), (2.55 * cm), 5)
+
+        text = self.canv.beginText()
+        text.setTextOrigin(10, start_y)
+        text.setFont('THSarabunNew Bold', 13)
+        text.textLines('สาขา')
+        text.textLines('เลขบิล')
+        text.textLines('วันที่')
+        text.textLines('ประเภท')
+        self.canv.drawText(text)
+
+        text = self.canv.beginText()
+        text.setTextOrigin(1.5 * cm, start_y)
+        text.setFont('THSarabunNew Bold', 13)
+        text.textLines(self.branch.code)
+        text.textLines(self.invoice.bill_number)
+        text.textLines(self.invoice.date_issue.strftime('%Y-%m-%d'))
+        text.textLines(self.invoice.bill_type.name)
+
+        self.canv.drawText(text)
+        text.setFont('THSarabunNew Bold', 20)
+        self.canv.drawString(0.5 * cm, 3.15 * cm, 'ใบเสร็จรับเงิน/ใบกำกับภาษี')
+
+        return
+
+    def render_footer(self):
+        sign_detail = 1.8 * cm
+        date_detail = 0.3 * cm
+        self.canv.setFont('THSarabunNew', 12)
+        self.canv.translate(inch, self.bottomMargin)
+        self.canv.roundRect(0, 0, self.width, (2.3 * cm), 5)
+
+        # self.canv.rect(3 * cm, 0, 3 * cm, 2 * cm)
+        self.canv.drawString(1.5 * cm, date_detail, 'วันที่ ......../......./........')
+        self.canv.drawString(6.5 * cm, date_detail, 'วันที่ ......../......./........')
+        self.canv.drawString(11.5 * cm, date_detail, 'วันที่ ......../......./........')
+        self.canv.drawString(2.3 * cm, sign_detail, 'ผู้รับเงิน')
+        self.canv.drawString(7.3 * cm, sign_detail, 'ผู้จัดทำ')
+        self.canv.drawString(12.3 * cm, sign_detail, 'ลูกค้า')
+
+        barc = code128.Code128(self.invoice.bill_number, barWidth=0.4 * mm, barHeight=1.2 * cm)
+        self.canv.drawString(2.8 * cm, 2.4 * cm, self.invoice.bill_number)
+        barc.drawOn(self.canv, 0, 2.7 * cm)
+
+        self.canv.setFont('THSarabunNew Italic', 11)
+        self.canv.drawString(10, 4.5 * cm,
+                             'ข้าพเจ้าได้รับสินค้าตามรายการที่ระบุไว้ข้างต้นครบถ้วนและสมบูรณ์เรียบร้อยแล้ว')
+        self.canv.drawString(10, 4.1 * cm,
+                             'สินค้าโปรโมชั่น ไม่สามารถเปลี่ยนหรือคืนได้')
+
+        return
+
+    def render_total(self):
+        self.canv.translate(9 * cm, 3.5 * cm)
+        self.canv.roundRect(0, 0, 6.9 * cm, 3 * cm, 5)
+
+        text = self.canv.beginText()
+        text.setTextOrigin(10, 2.3 * cm)
+        text.setFont('THSarabunNew Bold', 14)
+        text.textLine('ส่วนลด')
+        text.textLine('ราคารวม')
+        text.textLine('ภาษีมูลค่าเพิ่ม 7%')
+        text.textLine('ราคารวมทั้งหมด')
+
+        self.canv.drawText(text)
+
+        text = self.canv.beginText()
+        text.setTextOrigin(4 * cm, 2.3 * cm)
+        text.setFont('THSarabunNew Bold', 14)
+        if self.invoice.discount:
+            text.textLine('{:,.02f}'.format(self.invoice.discount))
+        else:
+            text.textLine('-')
+
+        text.textLine('{:,.02f}'.format(self.invoice.price_without_vat))
+        text.textLine('{:,.02f}'.format(self.invoice.vat))
+        text.textLine('{:,.02f}'.format(self.invoice.total_price))
+
+        self.canv.drawText(text)
+
+        return
+
+    def render_table(self, t_height, last=False):
+        from cci.util import num_to_text
+        self.canv.translate(inch, self.bottomMargin + (6.5 * cm))
+        self.canv.roundRect(0, 0, self.width, self.height - (12 * cm), 5)
+        self.canv.line(0, self.height - (12.7 * cm),
+                       self.width, self.height - (12.7 * cm))
+        self.canv.setFont('THSarabunNew Bold', 12)
+        if last:
+            line_list = [
+                [1 * cm, t_height, 1 * cm, 0.7 * cm],
+                [8.7 * cm, t_height, 8.7 * cm, 0.7 * cm],
+                [10.2 * cm, t_height, 10.2 * cm, 0.7 * cm],
+                [11.9 * cm, t_height, 11.9* cm, 0],
+                [13.5 * cm, t_height, 13.5 * cm, 0]
+            ]
+            self.canv.line(0, 0.7 * cm,
+                           self.width, 0.7 * cm)
+            self.canv.setFont('THSarabunNew Bold', 14)
+            self.canv.drawRightString(11.5 * cm, 0.15 * cm, num_to_text.thai_num2text(self.invoice.total_price))
+            self.canv.setFont('THSarabunNew Bold', 12)
+            self.canv.drawRightString(13.2 * cm, 0.15 * cm, '{:,d}'.format(int(self.invoice.pv)))
+            self.canv.drawRightString(15.5 * cm, 0.15 * cm, '{:,.2f}'.format(self.invoice.total_price))
+
+        else:
+            line_list = [
+                [1 * cm, t_height, 1 * cm, 0],
+                [8.7 * cm, t_height, 8.7 * cm, 0],
+                [10.2 * cm, t_height, 10.2 * cm, 0],
+                [11.9 * cm, t_height, 11.9 * cm, 0],
+                [13.5 * cm, t_height, 13.5 * cm, 0]
+            ]
+        self.canv.lines(line_list)
+        text = self.canv.beginText()
+        text.setTextOrigin(5, self.height - (12.5 * cm))
+        text.setFont('THSarabunNew Bold', 13)
+        text.textOut('ลำดับ')
+        text.moveCursor(3 * cm, 0)
+        text.textOut('รายการ')
+        text.moveCursor(5.8 * cm, 0)
+        text.textOut('จำนวน')
+        text.moveCursor(1.5 * cm, 0)
+        text.textOut('หน่วยละ')
+        text.moveCursor(2 * cm, 0)
+        text.textOut('PV')
+        text.moveCursor(2 * cm, 0)
+        text.textOut('รวม')
+        self.canv.drawText(text)
+
+
+        return
+
+    def handle_pageBegin(self):
+        '''override base method to add a change of page template after the firstpage.
+        '''
+
+        self._handle_pageBegin()
+        next_page = self.page + 1
+        if next_page >= self.total_page:
+            self._handle_nextPageTemplate('final')
+        # self._handle_nextPageTemplate('Later')'
+
+    def set_page_template(self, name):
+        for t in self.pageTemplates:
+            if t.id == name:
+                self.pageTemplate = self.pageTemplates.index(t)
+                return
+
+    def build(self, flowables, filename=None, canvasmaker=canvas.Canvas):
+        self.total_page = 1
+        for x in flowables:
+            if isinstance(x, PageBreak):
+                self.total_page += 1
+        self._calc()  # in case we changed margins sizes etc
+        frameT = Frame(self.leftMargin, self.bottomMargin + (6.5 * cm),
+                       self.width, self.height - (12.8 * cm),
+                       id='normal', showBoundary=0)
+        frame_last = Frame(self.leftMargin, self.bottomMargin + (6.5 * cm),
+                           self.width, self.height - (12.8 * cm),
+                           id='last', showBoundary=0)
+        template_pool = []
+        if self.total_page != 1:
+            template_pool = [
+                PageTemplate(id='defaut', frames=frameT, onPage=self.render_template, pagesize=self.page_size),
+                PageTemplate(id='final', frames=frame_last, onPage=self.render_last_page, pagesize=self.page_size),
+            ]
+        else:
+            template_pool = [
+                PageTemplate(id='final', frames=frame_last, onPage=self.render_last_page, pagesize=self.page_size), ]
+        self.addPageTemplates(template_pool)
+        super(InvoicePdf, self).build(flowables, filename, canvasmaker)
+        return
+
+    def create_pdf(self, response=None):
+        item_list = []
+        goods = GoodsJSONField()
+        item_count = 1
+        row_count = 1
+        credit = None
+
+        def determind_page_break(current, count, items):
+            current += count
+            if current > 23:
+                items.append(PageBreak())
+                current = 1
+            return current
+
+        for x in goods.to_representation(self.invoice.goods):
+            if x['code'] == 'SVC0001':
+                credit = x
+                continue
+            item_name = '{} {}'.format(x['code'], x['item'])
+            total_item_count = 1
+            total_item = [ProductDescription(no=row_count,
+                                             item=item_name,
+                                             qty=x['qty'],
+                                             pv=x['pv'],
+                                             price=int(x['prices']) / int(x['qty']),
+                                             total=x['prices'])]
+            if x['type'] == 'promotion':
+                for child in x['product']:
+                    total_item_count += 1
+                    child_name = '{} {} ({})'.format(child['code'], child['item'], child['qty'] * x['qty'])
+                    total_item.append(PromotionDescription(item=child_name))
+
+            # item_count += total_item_count
+            row_count += 1
+
+            item_count = determind_page_break(item_count, total_item_count, item_list)
+            for item in total_item:
+                item_list.append(item)
+
+        if credit:
+            item_name = '{} {}'.format(credit['code'], credit['item'])
+            item_list.append(ProductDescription(no=row_count,
+                                                item=item_name,
+                                                qty=1,
+                                                pv=0,
+                                                price=credit['prices'],
+                                                total=credit['prices']))
+        elif self.invoice.credit_fee:
+            item_list.append(ProductDescription(no=row_count,
+                                                item='SVC0001 ค่าธรรมเนียมรูดบัตร',
+                                                qty=1,
+                                                pv=0,
+                                                price=self.invoice.credit_fee,
+                                                total=self.invoice.credit_fee))
+        row_count += 1
+        determind_page_break(item_count, 1, item_list)
+
+        if self.invoice.shipment_fee:
+            item_list.append(ProductDescription(no=row_count,
+                                                item='ค่าจัดส่ง',
+                                                qty=1,
+                                                pv=0,
+                                                price=self.invoice.shipment_fee,
+                                                total=self.invoice.shipment_fee))
+
+        self.build(item_list, filename=response)
+        return self.canv

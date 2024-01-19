@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+{% load bootstrap4 %}
+
+{% block content %}
+    {{ block.super }}
+    <form action="" method="POST">
+        <div class="row">
+            {% csrf_token %}
+
+            <div class="col-6 offset-md-3">
+                {% bootstrap_form form  %}
+
+            </div>
+
+        </div>
+        <div class="row">
+            <div class="col-6 offset-md-3">
+                <div class="form-group" style="text-align: right;">
+                    <button type="submit" class="btn btn-primary" style="margin-right: 20px">Submit</button>
+                    <a class="btn btn-danger" href="/admin/bank/bankaccount/">Back</a>
+
+                </div>
+            </div>
+
+        </div>
+
+
+    </form>
+{% endblock %}
